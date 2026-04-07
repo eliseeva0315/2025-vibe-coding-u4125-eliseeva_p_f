@@ -179,7 +179,7 @@ CSV используется для:
 <img width="932" height="656" alt="image" src="https://github.com/user-attachments/assets/d276190b-779d-42e1-8ef2-0cb4b6c6589f" />
 
 Видео-демо:  
-[Запись экрана лаба 1]()
+[Запись экрана лаба 2]()
 ---
 
 ### Особенности реализации
