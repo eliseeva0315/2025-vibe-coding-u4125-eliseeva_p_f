@@ -4,7 +4,7 @@ Course: [Vibe Coding: AI-боты для бизнеса](https://github.com/itmo
 Year: 2025/2026  
 Group: U4125  
 Author: Елисеева Полина Федоровна  
-Lab: Lab2 
+Lab: Lab2   
 Date of create:  07.04.202   
 Date of finished:  
 
