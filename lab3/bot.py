@@ -68,10 +68,21 @@ MAIN_MENU_KEYBOARD = ReplyKeyboardMarkup(
     resize_keyboard=True,
 )
 
-# Тексты кнопок главного меню — исключаем из обычных шагов диалога, чтобы сработали fallbacks
-MAIN_MENU_BUTTONS_REGEX = r"^(👥 Сотрудники|📅 Важные даты|🎁 Wishlist|❓ Помощь)$"
-# Текст в диалоге, но не команда и не кнопка меню (чтобы меню обрабатывалось в fallbacks)
-DIALOG_TEXT = filters.TEXT & ~filters.COMMAND & ~filters.Regex(MAIN_MENU_BUTTONS_REGEX)
+BTN_BACK = "⬅️ Назад"
+# В диалогах: «Назад» + главное меню (для шагов с вводом текста)
+DIALOG_INPUT_KEYBOARD = ReplyKeyboardMarkup(
+    [
+        [BTN_BACK],
+        ["👥 Сотрудники", "📅 Важные даты"],
+        ["🎁 Wishlist", "❓ Помощь"],
+    ],
+    resize_keyboard=True,
+)
+
+# Кнопки навигации — исключаем из обычных шагов диалога, чтобы сработали fallbacks
+DIALOG_NAV_BUTTONS_REGEX = r"^(👥 Сотрудники|📅 Важные даты|🎁 Wishlist|❓ Помощь|⬅️ Назад)$"
+# Текст в диалоге, но не команда и не кнопка меню/«Назад»
+DIALOG_TEXT = filters.TEXT & ~filters.COMMAND & ~filters.Regex(DIALOG_NAV_BUTTONS_REGEX)
 
 BTN_EMP_ALL = "Все сотрудники"
 
@@ -378,6 +389,11 @@ def make_keyboard_by_items(items: list[str], row_size: int = 2) -> ReplyKeyboard
     for i in range(0, len(items), row_size):
         rows.append(items[i : i + row_size])
     return ReplyKeyboardMarkup(rows, resize_keyboard=True)
+
+
+def prepend_back_row(kb: ReplyKeyboardMarkup) -> ReplyKeyboardMarkup:
+    """Строка «⬅️ Назад» над переданной клавиатурой (выбор отдела, сотрудника и т.д.)."""
+    return ReplyKeyboardMarkup([[BTN_BACK]] + list(kb.keyboard), resize_keyboard=True)
 
 
 def find_employees_by_name_query(employees: list[dict[str, Any]], query: str) -> list[dict[str, Any]]:
@@ -724,7 +740,7 @@ async def cmd_employees(update: Update, context: ContextTypes.DEFAULT_TYPE) -> i
     departments = extract_departments(employees)
     button_labels = [BTN_EMP_ALL] + departments
     context.user_data["employee_department_labels"] = set(button_labels)
-    keyboard = make_keyboard_by_items(button_labels, row_size=2)
+    keyboard = prepend_back_row(make_keyboard_by_items(button_labels, row_size=2))
 
     await update.message.reply_text(
         "Выберите отдел сотрудников кнопками ниже\\.\n\n"
@@ -745,7 +761,7 @@ async def employee_category_chosen(update: Update, context: ContextTypes.DEFAULT
             await update.message.reply_text(csv_error, parse_mode=ParseMode.MARKDOWN_V2)
             return ConversationHandler.END
         departments = extract_departments(get_employees_source())
-        keyboard = make_keyboard_by_items([BTN_EMP_ALL] + departments, row_size=2)
+        keyboard = prepend_back_row(make_keyboard_by_items([BTN_EMP_ALL] + departments, row_size=2))
         await update.message.reply_text(
             "Выберите отдел одной из кнопок ниже или нажмите /cancel\\.",
             parse_mode=ParseMode.MARKDOWN_V2,
@@ -765,7 +781,7 @@ async def employee_category_chosen(update: Update, context: ContextTypes.DEFAULT
         await update.message.reply_text(
             "В этом отделе сотрудников нет\\. Выберите другую кнопку\\.",
             parse_mode=ParseMode.MARKDOWN_V2,
-            reply_markup=make_keyboard_by_items([BTN_EMP_ALL] + departments, row_size=2),
+            reply_markup=prepend_back_row(make_keyboard_by_items([BTN_EMP_ALL] + departments, row_size=2)),
         )
         return SEARCH_EMPLOYEE
 
@@ -880,6 +896,7 @@ async def cb_wish_add(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int
     await query.message.reply_text(
         "Введите имя сотрудника\\.\n\n/cancel — отмена",
         parse_mode=ParseMode.MARKDOWN_V2,
+        reply_markup=DIALOG_INPUT_KEYBOARD,
     )
     return WISH_AUTHOR
 
@@ -888,10 +905,16 @@ async def wish_author(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int
     """Поиск сотрудника по имени или запуск добавления нового сотрудника."""
     name_query = (update.message.text or "").strip()
     if not name_query:
-        await update.message.reply_text("Пустой ввод\\. Введите имя или нажмите /cancel\\.")
+        await update.message.reply_text(
+            "Пустой ввод\\. Введите имя или нажмите /cancel\\.",
+            reply_markup=DIALOG_INPUT_KEYBOARD,
+        )
         return WISH_AUTHOR
     if len(name_query) > MAX_WISH_AUTHOR_LEN:
-        await update.message.reply_text(f"Слишком длинно\\. До {MAX_WISH_AUTHOR_LEN} символов\\.")
+        await update.message.reply_text(
+            f"Слишком длинно\\. До {MAX_WISH_AUTHOR_LEN} символов\\.",
+            reply_markup=DIALOG_INPUT_KEYBOARD,
+        )
         return WISH_AUTHOR
 
     csv_error = get_csv_error_message()
@@ -906,7 +929,7 @@ async def wish_author(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int
         await update.message.reply_text(
             "Опишите пожелание одним сообщением\\.\n\n/cancel — отмена",
             parse_mode=ParseMode.MARKDOWN_V2,
-            reply_markup=MAIN_MENU_KEYBOARD,
+            reply_markup=DIALOG_INPUT_KEYBOARD,
         )
         return WISH_ITEM
 
@@ -924,17 +947,19 @@ async def wish_author(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int
         await update.message.reply_text(
             "Найдено несколько сотрудников\\. Выберите нужного кнопкой\\.",
             parse_mode=ParseMode.MARKDOWN_V2,
-            reply_markup=make_keyboard_by_items(labels, row_size=1),
+            reply_markup=prepend_back_row(make_keyboard_by_items(labels, row_size=1)),
         )
         return WISH_PICK_EMPLOYEE
 
     await update.message.reply_text(
         "Сотрудник не найден\\. Давайте добавим нового",
         parse_mode=ParseMode.MARKDOWN_V2,
+        reply_markup=DIALOG_INPUT_KEYBOARD,
     )
     await update.message.reply_text(
         "Введите имя и фамилию нового сотрудника\\.",
         parse_mode=ParseMode.MARKDOWN_V2,
+        reply_markup=DIALOG_INPUT_KEYBOARD,
     )
     return NEW_EMP_NAME
 
@@ -947,6 +972,7 @@ async def wish_pick_employee(update: Update, context: ContextTypes.DEFAULT_TYPE)
         await update.message.reply_text(
             "Выберите сотрудника кнопкой из списка или /cancel\\.",
             parse_mode=ParseMode.MARKDOWN_V2,
+            reply_markup=DIALOG_INPUT_KEYBOARD,
         )
         return WISH_PICK_EMPLOYEE
 
@@ -955,7 +981,7 @@ async def wish_pick_employee(update: Update, context: ContextTypes.DEFAULT_TYPE)
     await update.message.reply_text(
         "Опишите пожелание одним сообщением\\.\n\n/cancel — отмена",
         parse_mode=ParseMode.MARKDOWN_V2,
-        reply_markup=MAIN_MENU_KEYBOARD,
+        reply_markup=DIALOG_INPUT_KEYBOARD,
     )
     return WISH_ITEM
 
@@ -964,7 +990,10 @@ async def new_emp_name(update: Update, context: ContextTypes.DEFAULT_TYPE) -> in
     """Шаг 1: имя нового сотрудника."""
     full_name = (update.message.text or "").strip()
     if len(full_name) < 3:
-        await update.message.reply_text("Введите корректные имя и фамилию\\.")
+        await update.message.reply_text(
+            "Введите корректные имя и фамилию\\.",
+            reply_markup=DIALOG_INPUT_KEYBOARD,
+        )
         return NEW_EMP_NAME
     context.user_data["new_emp_name"] = full_name
 
@@ -985,7 +1014,7 @@ async def new_emp_name(update: Update, context: ContextTypes.DEFAULT_TYPE) -> in
     await update.message.reply_text(
         "Выберите отдел кнопкой\\.",
         parse_mode=ParseMode.MARKDOWN_V2,
-        reply_markup=make_keyboard_by_items(departments, row_size=2),
+        reply_markup=prepend_back_row(make_keyboard_by_items(departments, row_size=2)),
     )
     return NEW_EMP_DEPARTMENT
 
@@ -996,10 +1025,15 @@ async def new_emp_department(update: Update, context: ContextTypes.DEFAULT_TYPE)
     dep_norm = normalize_department(dep_input)
     allowed = {normalize_department(x) for x in (context.user_data.get("new_emp_departments") or set())}
     if dep_norm not in allowed:
-        await update.message.reply_text("Выберите отдел одной из кнопок\\.")
+        await update.message.reply_text(
+            "Выберите отдел одной из кнопок\\.",
+            reply_markup=prepend_back_row(
+                make_keyboard_by_items(sorted(context.user_data.get("new_emp_departments") or []), row_size=2)
+            ),
+        )
         return NEW_EMP_DEPARTMENT
     context.user_data["new_emp_department"] = dep_norm
-    await update.message.reply_text("Введите специализацию\\.", reply_markup=MAIN_MENU_KEYBOARD)
+    await update.message.reply_text("Введите специализацию\\.", reply_markup=DIALOG_INPUT_KEYBOARD)
     return NEW_EMP_SPECIALIZATION
 
 
@@ -1007,10 +1041,17 @@ async def new_emp_specialization(update: Update, context: ContextTypes.DEFAULT_T
     """Шаг 3: специализация."""
     specialization = (update.message.text or "").strip()
     if not specialization:
-        await update.message.reply_text("Специализация не может быть пустой\\.")
+        await update.message.reply_text(
+            "Специализация не может быть пустой\\.",
+            reply_markup=DIALOG_INPUT_KEYBOARD,
+        )
         return NEW_EMP_SPECIALIZATION
     context.user_data["new_emp_specialization"] = specialization
-    await update.message.reply_text("Введите опыт работы в годах \\(число\\)\\.", parse_mode=ParseMode.MARKDOWN_V2)
+    await update.message.reply_text(
+        "Введите опыт работы в годах \\(число\\)\\.",
+        parse_mode=ParseMode.MARKDOWN_V2,
+        reply_markup=DIALOG_INPUT_KEYBOARD,
+    )
     return NEW_EMP_EXPERIENCE
 
 
@@ -1018,14 +1059,20 @@ async def new_emp_experience(update: Update, context: ContextTypes.DEFAULT_TYPE)
     """Шаг 4: опыт."""
     raw = (update.message.text or "").strip()
     if not raw.isdigit():
-        await update.message.reply_text("Введите целое число лет опыта\\.")
+        await update.message.reply_text(
+            "Введите целое число лет опыта\\.",
+            reply_markup=DIALOG_INPUT_KEYBOARD,
+        )
         return NEW_EMP_EXPERIENCE
     years = int(raw)
     if years < 0 or years > 80:
-        await update.message.reply_text("Введите значение от 0 до 80\\.")
+        await update.message.reply_text(
+            "Введите значение от 0 до 80\\.",
+            reply_markup=DIALOG_INPUT_KEYBOARD,
+        )
         return NEW_EMP_EXPERIENCE
     context.user_data["new_emp_experience"] = years
-    await update.message.reply_text("Введите телефон\\.")
+    await update.message.reply_text("Введите телефон\\.", reply_markup=DIALOG_INPUT_KEYBOARD)
     return NEW_EMP_PHONE
 
 
@@ -1033,10 +1080,13 @@ async def new_emp_phone(update: Update, context: ContextTypes.DEFAULT_TYPE) -> i
     """Шаг 5: телефон."""
     phone = (update.message.text or "").strip()
     if len(phone) < 5:
-        await update.message.reply_text("Введите корректный телефон\\.")
+        await update.message.reply_text(
+            "Введите корректный телефон\\.",
+            reply_markup=DIALOG_INPUT_KEYBOARD,
+        )
         return NEW_EMP_PHONE
     context.user_data["new_emp_phone"] = phone
-    await update.message.reply_text("Введите email\\.")
+    await update.message.reply_text("Введите email\\.", reply_markup=DIALOG_INPUT_KEYBOARD)
     return NEW_EMP_EMAIL
 
 
@@ -1044,12 +1094,16 @@ async def new_emp_email(update: Update, context: ContextTypes.DEFAULT_TYPE) -> i
     """Шаг 6: email."""
     email = (update.message.text or "").strip()
     if "@" not in email or "." not in email:
-        await update.message.reply_text("Введите корректный email\\.")
+        await update.message.reply_text(
+            "Введите корректный email\\.",
+            reply_markup=DIALOG_INPUT_KEYBOARD,
+        )
         return NEW_EMP_EMAIL
     context.user_data["new_emp_email"] = email
     await update.message.reply_text(
         "Введите дату рождения в формате ДД\\.ММ\\.ГГГГ\\.",
         parse_mode=ParseMode.MARKDOWN_V2,
+        reply_markup=DIALOG_INPUT_KEYBOARD,
     )
     return NEW_EMP_BIRTHDAY
 
@@ -1062,6 +1116,7 @@ async def new_emp_birthday(update: Update, context: ContextTypes.DEFAULT_TYPE) -
         await update.message.reply_text(
             "Неверный формат\\. Введите дату как ДД\\.ММ\\.ГГГГ\\.",
             parse_mode=ParseMode.MARKDOWN_V2,
+            reply_markup=DIALOG_INPUT_KEYBOARD,
         )
         return NEW_EMP_BIRTHDAY
 
@@ -1113,7 +1168,7 @@ async def new_emp_birthday(update: Update, context: ContextTypes.DEFAULT_TYPE) -
     await update.message.reply_text(
         "Сотрудник добавлен\\. Теперь введите пожелание\\.",
         parse_mode=ParseMode.MARKDOWN_V2,
-        reply_markup=MAIN_MENU_KEYBOARD,
+        reply_markup=DIALOG_INPUT_KEYBOARD,
     )
     return WISH_ITEM
 
@@ -1122,10 +1177,16 @@ async def wish_item(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     """Сохранение пожелания в JSON."""
     text = (update.message.text or "").strip()
     if not text:
-        await update.message.reply_text("Пустой текст\\. Опишите пожелание или /cancel\\.")
+        await update.message.reply_text(
+            "Пустой текст\\. Опишите пожелание или /cancel\\.",
+            reply_markup=DIALOG_INPUT_KEYBOARD,
+        )
         return WISH_ITEM
     if len(text) > MAX_WISH_ITEM_LEN:
-        await update.message.reply_text(f"Слишком длинно\\. До {MAX_WISH_ITEM_LEN} символов\\.")
+        await update.message.reply_text(
+            f"Слишком длинно\\. До {MAX_WISH_ITEM_LEN} символов\\.",
+            reply_markup=DIALOG_INPUT_KEYBOARD,
+        )
         return WISH_ITEM
 
     author = context.user_data.get("wish_author") or "Аноним"
@@ -1164,6 +1225,20 @@ async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     return ConversationHandler.END
 
 
+async def dialog_nav_fallback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """«Назад» или кнопка главного меню во время диалога."""
+    text = (update.message.text or "").strip()
+    if text == BTN_BACK:
+        context.user_data.clear()
+        await update.message.reply_text(
+            "Главное меню\\.",
+            parse_mode=ParseMode.MARKDOWN_V2,
+            reply_markup=MAIN_MENU_KEYBOARD,
+        )
+        return ConversationHandler.END
+    return await menu_fallback(update, context)
+
+
 async def menu_fallback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     """Выход из диалога по кнопке главного меню: очистка состояния и нужный раздел."""
     text = (update.message.text or "").strip()
@@ -1186,7 +1261,13 @@ async def menu_fallback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> i
 async def handle_menu_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Маршрутизация нажатий ReplyKeyboard, когда нет активного ConversationHandler."""
     text = (update.message.text or "").strip()
-    if text == "👥 Сотрудники":
+    if text == BTN_BACK:
+        await update.message.reply_text(
+            "Главное меню\\.",
+            parse_mode=ParseMode.MARKDOWN_V2,
+            reply_markup=MAIN_MENU_KEYBOARD,
+        )
+    elif text == "👥 Сотрудники":
         await cmd_employees(update, context)
     elif text == "📅 Важные даты":
         await cmd_important_dates(update, context)
@@ -1256,7 +1337,7 @@ def main() -> None:
         },
         fallbacks=[
             CommandHandler("cancel", cancel),
-            MessageHandler(filters.Regex(MAIN_MENU_BUTTONS_REGEX), menu_fallback),
+            MessageHandler(filters.Regex(DIALOG_NAV_BUTTONS_REGEX), dialog_nav_fallback),
         ],
         name="wishlist_conv",
         per_chat=True,
@@ -1276,7 +1357,7 @@ def main() -> None:
         },
         fallbacks=[
             CommandHandler("cancel", cancel),
-            MessageHandler(filters.Regex(MAIN_MENU_BUTTONS_REGEX), menu_fallback),
+            MessageHandler(filters.Regex(DIALOG_NAV_BUTTONS_REGEX), dialog_nav_fallback),
         ],
         name="employees_conv",
         per_chat=True,
