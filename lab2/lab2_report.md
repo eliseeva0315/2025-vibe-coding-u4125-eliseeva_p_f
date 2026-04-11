@@ -5,7 +5,7 @@ Year: 2025/2026
 Group: U4125  
 Author: Елисеева Полина Федоровна  
 Lab: Lab2 
-Date of create:  07.04.2026
+Date of create:  07.04.202   
 Date of finished:  
 
 # Лабораторная работа №2  
