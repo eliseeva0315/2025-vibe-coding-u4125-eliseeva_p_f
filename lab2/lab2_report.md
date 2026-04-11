@@ -178,8 +178,8 @@ CSV используется для:
 
 <img width="932" height="656" alt="image" src="https://github.com/user-attachments/assets/d276190b-779d-42e1-8ef2-0cb4b6c6589f" />
 
-Видео-демо:  
-[Запись экрана лаба 2]()
+## Видео-демо:  
+[Запись экрана лаба 2](https://drive.google.com/file/d/1dvtc7jovEFRedezpiVQMjaxKGkBS_a9l/view?usp=drivesdk)
 ---
 
 ### Особенности реализации
